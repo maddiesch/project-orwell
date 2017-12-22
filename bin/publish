@@ -1,0 +1,20 @@
+#!/bin/bash
+
+pwd="`pwd`"
+version=$(<VERSION)
+version=${version// /}
+
+./bin/build
+
+bucket=project-orwell
+
+pushd build
+  pushd lambda
+    for zip in *.zip; do
+      aws s3 cp $zip s3://$bucket/lambda/$zip
+    done
+  popd
+  pushd cloud-formation
+    aws s3 cp stack-$version.yml s3://$bucket/cloud-formation/stack-$version.yml
+  popd
+popd

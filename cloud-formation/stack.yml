@@ -1,0 +1,672 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Project Orwell - Facial Recognition Pipeline
+##
+# Resources
+##
+Resources:
+  ##
+  ## S3
+  ##
+  IndexingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join
+        - '-'
+        - - indexing
+          - !Select
+            - 0
+            - !Split
+              - '-'
+              - !Select
+                - 2
+                - !Split
+                  - /
+                  - !Ref AWS::StackId
+      LifecycleConfiguration:
+        Rules:
+          - Id: 'FileTTL'
+            Prefix: ''
+            Status: Enabled
+            ExpirationInDays: '30'
+  TransactionsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join
+        - '-'
+        - - transactions
+          - !Select
+            - 0
+            - !Split
+              - '-'
+              - !Select
+                - 2
+                - !Split
+                  - /
+                  - !Ref AWS::StackId
+      LifecycleConfiguration:
+        Rules:
+          - Id: 'FileTTL'
+            Prefix: ''
+            Status: Enabled
+            ExpirationInDays: '3'
+  ##
+  ## DynamoDB
+  ##
+  MetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Join
+        - '-'
+        - - metadata
+          - !Select
+            - 0
+            - !Split
+              - '-'
+              - !Select
+                - 2
+                - !Split
+                  - /
+                  - !Ref AWS::StackId
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      AttributeDefinitions:
+        - AttributeName: Identifier
+          AttributeType: S
+      KeySchema:
+        - AttributeName: Identifier
+          KeyType: HASH
+  MetadataTableWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 25
+      MinCapacity: 2
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref MetadataTable
+      RoleARN: !GetAtt DynamoAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  MetadataTableReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 25
+      MinCapacity: 2
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref MetadataTable
+      RoleARN: !GetAtt DynamoAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  MetadataTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref MetadataTableWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  MetadataTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref MetadataTableReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  TransactionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Join
+        - '-'
+        - - transactions
+          - !Select
+            - 0
+            - !Split
+              - '-'
+              - !Select
+                - 2
+                - !Split
+                  - /
+                  - !Ref AWS::StackId
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      AttributeDefinitions:
+        - AttributeName: TransactionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: TransactionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: TTL
+        Enabled: true
+  TransactionsTableWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 25
+      MinCapacity: 2
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref TransactionsTable
+      RoleARN: !GetAtt DynamoAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  TransactionsTableReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 25
+      MinCapacity: 2
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref TransactionsTable
+      RoleARN: !GetAtt DynamoAutoScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  TransactionsTableWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: WriteAutoScaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref TransactionsTableWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  TransactionsTableReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ReadAutoScaling
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref TransactionsTableReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: 60.0
+        ScaleInCooldown: 60
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+  DynamoAutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - application-autoscaling.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: dynamo
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - dynamodb:DescribeTable
+                  - dynamodb:UpdateTable
+        - PolicyName: cloudwatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Resource: "*"
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:SetAlarmState
+                  - cloudwatch:DeleteAlarms
+  ##
+  ## Transaction Creation
+  ##
+  CreateTransactionFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Creates a transaction
+      Handler: index.handler
+      Role: !GetAtt CreateTransactionFunctionExecutionRole.Arn
+      Runtime: nodejs6.10
+      Timeout: 5
+      MemorySize: 128
+      Code:
+        S3Bucket: project-orwell
+        S3Key: !Sub
+          - lambda/CreateTransactionFunction-${Version}.zip
+          - { Version: !FindInMap [ StaticVariables, Versions, Current ] }
+      Environment:
+        Variables:
+          TRANSACTIONS_TABLE_NAME: !Ref TransactionsTable
+          TRANSACTIONS_BUCKET_NAME: !Ref TransactionsBucket
+  CreateTransactionSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !GetAtt CreateTransactionFunction.Arn
+          Protocol: lambda
+  SNSTopicLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      Principal: 'sns.amazonaws.com'
+      SourceArn: !Ref CreateTransactionSNSTopic
+      FunctionName: !GetAtt CreateTransactionFunction.Arn
+  CreateTransactionFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: dynamo-transactions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Table}"
+                  - { Table: !Ref TransactionsTable }
+        - PolicyName: s3-transactions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub
+                  - "arn:aws:s3:::${Bucket}/*"
+                  - { Bucket: !Ref TransactionsBucket }
+  ##
+  ## API Gateway
+  ##
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Join
+        - '-'
+        - - project-orwell
+          - !Ref AWS::StackName
+  IndexingResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: indexing
+  FindingResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: find
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - IndexingPostMethod
+      - FindPostMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref ApiDeployment
+      RestApiId: !Ref ApiGateway
+      StageName: v1
+  ##
+  ## Methods
+  ##
+
+  #### /indexing
+  IndexingPostFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Used to index an image in Reckognition
+      Handler: index.handler
+      Role: !GetAtt IndexingPostFunctionExecutionRole.Arn
+      Runtime: nodejs6.10
+      Timeout: 5
+      MemorySize: 128
+      Code:
+        S3Bucket: project-orwell
+        S3Key: !Sub
+          - lambda/IndexingPostFunction-${Version}.zip
+          - { Version: !FindInMap [ StaticVariables, Versions, Current ] }
+      Environment:
+        Variables:
+          TASK_QUEUE_URL: !Ref IndexingPendingQueue
+  IndexingPostMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: IndexingPostFunction
+    Properties:
+      ResourceId: !Ref IndexingResource
+      RestApiId: !Ref ApiGateway
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations"
+          - LambdaArn: !GetAtt IndexingPostFunction.Arn
+  ApiGatewayIndexLambdaExecution:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt IndexingPostFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub
+        - "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/POST/indexing"
+        - { Api: !Ref ApiGateway }
+  IndexingPostFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: sqs
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt IndexingPendingQueue.Arn
+  #### /find
+  FindPostFuction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Used to find a face in the Indexed Collection
+      Handler: index.handler
+      Role: !GetAtt FindPostFuctionExecutionRole.Arn
+      Runtime: nodejs6.10
+      Timeout: 5
+      MemorySize: 128
+      Code:
+        S3Bucket: project-orwell
+        S3Key: !Sub
+          - lambda/FindPostFuction-${Version}.zip
+          - { Version: !FindInMap [ StaticVariables, Versions, Current ] }
+      Environment:
+        Variables:
+          METADATA_TABLE_NAME: !Ref MetadataTable
+          TRANSACTION_TOPIC_ARN: !Ref CreateTransactionSNSTopic
+          COLLECTION_TEMPLATE: !Join
+            - '-'
+            - - 'index'
+              - !Ref AWS::StackName
+              - "{{id}}"
+  FindPostMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: FindPostFuction
+    Properties:
+      ResourceId: !Ref FindingResource
+      RestApiId: !Ref ApiGateway
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations"
+          - LambdaArn: !GetAtt FindPostFuction.Arn
+  ApiGatewayFindLambdaExecution:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt FindPostFuction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub
+        - "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${Api}/*/POST/find"
+        - { Api: !Ref ApiGateway }
+  FindPostFuctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: rekognition
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rekognition:SearchFacesByImage
+                Resource: "*"
+        - PolicyName: dynamo-metadata
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                Resource: !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Table}"
+                  - { Table: !Ref MetadataTable }
+        - PolicyName: topics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref CreateTransactionSNSTopic
+  ##
+  ## Indexing
+  ##
+  PerformIndexingFanoutFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Pulls messages off the SQS queue and fans them out
+      Handler: index.handler
+      Role: !GetAtt PerformIndexingFanoutFunctionExecutionRole.Arn
+      Runtime: nodejs6.10
+      Timeout: 30
+      MemorySize: 128
+      Code:
+        S3Bucket: project-orwell
+        S3Key: !Sub
+          - lambda/PerformIndexingFanoutFunction-${Version}.zip
+          - { Version: !FindInMap [ StaticVariables, Versions, Current ] }
+      Environment:
+        Variables:
+          TASK_QUEUE_URL: !Ref IndexingPendingQueue
+          FANOUT_LAMBDA_NAME: !Ref PerformIndexingFunction
+  PerformIndexingFanoutFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: sqs
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt IndexingPendingQueue.Arn
+        - PolicyName: lambda
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt PerformIndexingFunction.Arn
+  PerformIndexingEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: !Ref PerformIndexingFanoutFunction
+          Arn: !GetAtt PerformIndexingFanoutFunction.Arn
+  PerformIndexingEventPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:invokeFunction
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt PerformIndexingEvent.Arn
+      FunctionName: !GetAtt PerformIndexingFanoutFunction.Arn
+  PerformIndexingFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Performs face indexing
+      Handler: index.handler
+      Role: !GetAtt PerformIndexingFunctionExecutionRole.Arn
+      Runtime: nodejs6.10
+      Timeout: 10
+      MemorySize: 128
+      Code:
+        S3Bucket: project-orwell
+        S3Key: !Sub
+          - lambda/PerformIndexingFunction-${Version}.zip
+          - { Version: !FindInMap [ StaticVariables, Versions, Current ] }
+      Environment:
+        Variables:
+          TASK_QUEUE_URL: !Ref IndexingPendingQueue
+          METADATA_TABLE_NAME: !Ref MetadataTable
+          BUCKET_NAME: !Ref IndexingBucket
+          COLLECTION_TEMPLATE: !Join
+            - '-'
+            - - 'index'
+              - !Ref AWS::StackName
+              - "{{id}}"
+  PerformIndexingFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      Policies:
+        - PolicyName: sqs
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:DeleteMessage
+                Resource: !GetAtt IndexingPendingQueue.Arn
+        - PolicyName: rekognition
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - rekognition:CreateCollection
+                  - rekognition:IndexFaces
+                Resource: "*"
+        - PolicyName: s3-indexing
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                  - s3:GetObject
+                Resource: !Sub
+                  - "arn:aws:s3:::${Bucket}/*"
+                  - { Bucket: !Ref IndexingBucket }
+        - PolicyName: dynamo-metadata
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:UpdateItem
+                  - dynamodb:PutItem
+                Resource: !Sub
+                  - "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Table}"
+                  - { Table: !Ref MetadataTable }
+  IndexingPendingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !Sub ${IndexingPendingDeadLetterQueue.Arn}
+        maxReceiveCount: 10
+  IndexingPendingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+  ##
+  ## Shared Permissions
+  ##
+  CloudLogsLambdaPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Roles:
+        - !Ref IndexingPostFunctionExecutionRole
+        - !Ref CreateTransactionFunctionExecutionRole
+        - !Ref FindPostFuctionExecutionRole
+        - !Ref PerformIndexingFanoutFunctionExecutionRole
+        - !Ref PerformIndexingFunctionExecutionRole
+      PolicyName: lambda-logs
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+              - xray:PutTraceSegments
+              - xray:PutTelemetryRecords
+            Resource: "*"
+##
+# Outputs
+##
+Outputs:
+  ApiGatewayURI:
+    Value: !Sub "https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}/"

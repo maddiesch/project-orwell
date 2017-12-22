@@ -1,0 +1,37 @@
+#!/bin/bash
+
+pwd="`pwd`"
+version=$(<VERSION)
+version=${version// /}
+
+if [ -d build ]; then rm -rf build; fi
+
+mkdir -p $pwd/build/lambda
+mkdir -p $pwd/build/cloud-formation
+
+# Lambda Functions
+pushd functions
+  for lambdafunction in */; do
+      pushd $lambdafunction
+        tmp=$pwd/build/tmp/${lambdafunction%?}
+        rm -rf node_modules
+        mkdir -p $tmp
+
+        cp -r ./* $tmp
+        cp -r $pwd/shared-function-code/* $tmp
+
+        pushd $tmp
+          yarn install
+          zip -r $pwd/build/lambda/${lambdafunction%?}-$version.zip .
+        popd
+
+        rm -rf $tmp
+      popd
+    done
+popd
+
+# CloudFormation Template
+pushd cloud-formation
+  cp stack.yml $pwd/build/cloud-formation/stack-$version.yml
+  printf "\nMappings:\n  StaticVariables:\n    Versions:\n      Current: $version" >> $pwd/build/cloud-formation/stack-$version.yml
+popd
